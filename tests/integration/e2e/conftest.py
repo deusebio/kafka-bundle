@@ -16,7 +16,6 @@ from literals import (
     DATABASE_CHARM_NAME,
     KAFKA_CHARM_NAME,
     KAFKA_TEST_APP_CHARM_NAME,
-    TLS_APP_NAME,
     TLS_CHARM_NAME,
     TLS_REL_NAME,
     ZOOKEEPER_CHARM_NAME,
@@ -42,7 +41,7 @@ def pytest_addoption(parser):
         "--certificates",
         action="store",
         help="name of pre-deployed tls-certificates app",
-        default=TLS_APP_NAME,
+        default=TLS_CHARM_NAME,
     )
 
 
@@ -96,11 +95,11 @@ async def deploy_cluster(ops_test: OpsTest, tls):
         )
         await ops_test.model.wait_for_idle(apps=[KAFKA_CHARM_NAME, ZOOKEEPER_CHARM_NAME])
 
-        async with ops_test.fast_forward():
+        async with ops_test.fast_forward(fast_interval="30s"):
             await ops_test.model.add_relation(KAFKA_CHARM_NAME, ZOOKEEPER_CHARM_NAME)
             await ops_test.model.wait_for_idle(
                 apps=[KAFKA_CHARM_NAME, ZOOKEEPER_CHARM_NAME],
-                idle_period=10,
+                idle_period=20,
                 status="active",
                 timeout=300,
             )
@@ -114,23 +113,23 @@ async def deploy_cluster(ops_test: OpsTest, tls):
 
         await ops_test.model.deploy(
             TLS_CHARM_NAME,
-            application_name=TLS_APP_NAME,
+            application_name=TLS_CHARM_NAME,
             num_units=1,
             series="jammy",
             channel="beta",
             config={"generate-self-signed-certificates": "true", "ca-common-name": "Canonical"},
         )
-        await ops_test.model.wait_for_idle(apps=[TLS_APP_NAME])
+        await ops_test.model.wait_for_idle(apps=[TLS_CHARM_NAME])
 
         # block until non-tls cluster completion
         await deploy_non_tls
 
-        async with ops_test.fast_forward():
-            await ops_test.model.add_relation(ZOOKEEPER_CHARM_NAME, TLS_APP_NAME)
-            await ops_test.model.add_relation(f"{KAFKA_CHARM_NAME}:{TLS_REL_NAME}", TLS_APP_NAME)
+        async with ops_test.fast_forward(fast_interval="30s"):
+            await ops_test.model.add_relation(ZOOKEEPER_CHARM_NAME, TLS_CHARM_NAME)
+            await ops_test.model.add_relation(f"{KAFKA_CHARM_NAME}:{TLS_REL_NAME}", TLS_CHARM_NAME)
             await ops_test.model.wait_for_idle(
                 apps=[KAFKA_CHARM_NAME, ZOOKEEPER_CHARM_NAME],
-                idle_period=30,
+                idle_period=20,
                 status="active",
                 timeout=1800,
             )
@@ -182,7 +181,7 @@ async def deploy_data_integrator(ops_test: OpsTest, kafka):
 
 
 @pytest.fixture(scope="function")
-async def deploy_test_app(ops_test: OpsTest, kafka, tls):
+async def deploy_test_app(ops_test: OpsTest, kafka, certificates, tls):
     """Factory fixture for deploying + tearing down client applications."""
     # tracks deployed app names for teardown later
     apps = []
@@ -224,9 +223,9 @@ async def deploy_test_app(ops_test: OpsTest, kafka, tls):
 
         # Relate with TLS operator
         if tls:
-            await ops_test.model.add_relation(generated_app_name, TLS_APP_NAME)
+            await ops_test.model.add_relation(generated_app_name, certificates)
             await ops_test.model.wait_for_idle(
-                apps=[generated_app_name, TLS_APP_NAME],
+                apps=[generated_app_name, certificates],
                 idle_period=30,
                 status="active",
                 timeout=1800,
